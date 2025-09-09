@@ -11,14 +11,19 @@ public class HTTPRequest {
     private String httpVersion;
     private Map<String, String> headers;
     private String body;
+    private Map<String,String> params;
 
     public HTTPRequest() {
         this.headers = new HashMap<>();
+        this.params = new HashMap<>();
     }
 
     public void parseHTTPRequest(BufferedReader input) throws IOException {
 
         String inputLine = input.readLine();
+        if (inputLine == null || inputLine.isEmpty()) {
+            throw new IOException("Empty HTTP request");
+        }
 
         String[] str = inputLine.split(" ");
         this.setMethod(str[0]);
@@ -29,10 +34,11 @@ public class HTTPRequest {
         while ( nextLine != null && !nextLine.isEmpty()) {
             String[] headerParts = nextLine.split(":", 2);
 
-            String name = headerParts[0].trim();
-            String value = headerParts[1].trim();
-            this.setHeaders(name,value);
-
+            if (headerParts.length == 2) {
+                String name = headerParts[0].trim();
+                String value = headerParts[1].trim();
+                this.setHeaders(name, value);
+            }
 
             nextLine = input.readLine();
         }
@@ -59,7 +65,6 @@ public class HTTPRequest {
         }
 
     }
-
 
 
     // Getters and setters
@@ -96,6 +101,18 @@ public class HTTPRequest {
     }
     public void setBody(String body) {
         this.body = body;
+    }
+
+    public Map<String, String> getParams() {
+        return params;
+    }
+
+    public void setParams(Map<String, String> params) {
+        this.params = params;
+    }
+
+    public void addParam(String key, String value) {
+        this.params.put(key, value);
     }
 
 }

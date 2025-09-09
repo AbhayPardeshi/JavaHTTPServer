@@ -3,6 +3,7 @@ package main.java.http;
 import main.java.handlers.HelloHandler;
 import main.java.handlers.RouteHandler;
 import main.java.handlers.TimeHandler;
+import main.java.handlers.UserHandler;
 
 import java.io.*;
 import java.nio.file.Files;
@@ -10,27 +11,31 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class Router {
-    private final Map<String, String> staticRoutes = new ConcurrentHashMap<>();
-    Map<String, RouteHandler> dynamicRoutes = new HashMap<>();
-    private final String PUBLIC_DIR = "src/main/resources/staticFiles";
+
+    private StaticRouter staticRoutes;
+    private TrieRouter dynamicRoutes;
+    //Map<String, RouteHandler> dynamicRoutes = new HashMap<>();
+    // private final String PUBLIC_DIR = "src/main/resources/staticFiles";
 
     public Router() {
-        dynamicRoutes.put("/api/time", new TimeHandler());
-        dynamicRoutes.put("/hello", new HelloHandler());
-        addStaticRoutes();
+//        dynamicRoutes.put("/api/time", new TimeHandler());
+        this.staticRoutes = new StaticRouter();
+        this.dynamicRoutes = new TrieRouter();
+        addDynamicRoutes();
+
     }
 
-    private void addStaticRoutes() {
+    private void addDynamicRoutes(){
         Properties props = new Properties();
 
-        String filename = "staticRoutes.properties";
+        String filename = "dynamicRoutes.properties";
         Path configPath = Paths.get("src/main/resources", filename);
         if (!Files.exists(configPath)) {
-            // Fallback to current directory
             configPath = Paths.get(filename);
         }
         try (FileInputStream file = new FileInputStream(configPath.toString())) {
@@ -38,86 +43,62 @@ public class Router {
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
+        System.out.println("hi");
+        for (String key : props.stringPropertyNames()) {
+            String path = props.getProperty(key);
+            RouteHandler handler = switch (key) {
+                case "users" -> new UserHandler();      // dynamic route handler
+                //case "comments" -> new CommentsHandler();
+                //case "about" -> new AboutHandler();
+                default -> throw new RuntimeException("Unknown handler key: " + key);
+            };
 
-        for (Map.Entry<Object, Object> entry : props.entrySet()) {
-            String path = (String) entry.getKey();
-            String file = (String) entry.getValue();
-            staticRoutes.put(path, file);
+            dynamicRoutes.setPath(path, handler);
         }
     }
 
+//    public void route(HTTPRequest request, PrintWriter out, OutputStream rawOut){
+//        String pathKey = request.getPath();
+//
+////        if (dynamicRoutes.containsPath(pathKey)) {
+////            //dynamicRoutes.get(pathKey).handle(request, out);
+////            return;
+////        }
+//
+//        String filePath = staticRoutes.getPath(pathKey);
+//
+//        // Serve static file
+//        staticRoutes.serveStaticFile(filePath, out, rawOut);
+//
+//    }
 
-    public void route(HTTPRequest request, PrintWriter out, OutputStream rawOut){
-        String pathKey = request.getPath();
+    public void route(HTTPRequest request, PrintWriter out, OutputStream rawOut) {
+        String path = request.getPath();
 
-        if (dynamicRoutes.containsKey(pathKey)) {
-            dynamicRoutes.get(pathKey).handle(request, out);
+        // 1️⃣ Check dynamic routes first
+        TrieRouter.RouteMatch match = dynamicRoutes.findPath(path);
+        if (match != null) {
+            // inject params into request (optional if your request supports it)
+            request.setParams(match.params());
+
+            // call handler
+            match.handler().handle(request, out);
             return;
         }
 
-        String filePath = staticRoutes.get(pathKey);
-
-        // Serve static file
-        serveStaticFile(filePath, out, rawOut);
-
-    }
-    private void serveStaticFile(String path, PrintWriter out,OutputStream rawOut) {
-        File file = new File(PUBLIC_DIR + path);
-
-        if (!file.exists() || file.isDirectory()) {
-            send404(out);
+        // 2️⃣ Otherwise check static routes
+        String filePath = staticRoutes.getPath(path);
+        if (filePath != null) {
+            staticRoutes.serveStaticFile(filePath, out, rawOut);
             return;
         }
-        sendFileResponse(file, out,rawOut);
-    }
 
-
-    private void sendFileResponse(File file, PrintWriter out,OutputStream rawOut) {
-        try {
-            String mimeType = Files.probeContentType(Paths.get(file.getAbsolutePath()));
-            if (mimeType == null) {
-                mimeType = "text/plain";
-            }
-
-            out.println("HTTP/1.1 200 OK");
-            out.println("Content-Type: " + mimeType + "; charset=UTF-8");
-            out.println("Content-Length: " + file.length());
-            out.println();
-            out.flush();
-
-//            BufferedReader reader = new BufferedReader(new FileReader(file));
-//            String line;
-//            while ((line = reader.readLine()) != null) {
-//                out.println(line);
-//            }
-//            reader.close();
-
-            FileInputStream fis = new FileInputStream(file);
-            byte[] buffer = new byte[8192];
-            int bytesRead;
-            while ((bytesRead = fis.read(buffer)) != -1) {
-                rawOut.write(buffer, 0, bytesRead);
-            }
-            rawOut.flush();
-            fis.close();
-
-        } catch (IOException e) {
-            send500(out, e.getMessage());
-        }
-    }
-
-    private void send500(PrintWriter out, String message) {
-        out.println("HTTP/1.1 500 Internal Server Error");
-        out.println("Content-Type: text/html; charset=UTF-8");
-        out.println();
-        out.println("<h1>500 Internal Server Error</h1>");
-        out.println("<p>" + message + "</p>");
-    }
-
-    private void send404(PrintWriter out) {
+        // 3️⃣ Nothing matched → 404
         out.println("HTTP/1.1 404 Not Found");
-        out.println("Content-Type: text/html; charset=UTF-8");
+        out.println("Content-Type: text/plain");
         out.println();
-        out.println("<h1>404 Not Found</h1>");
+        out.println("404 Not Found: " + path);
     }
+
+
 }
