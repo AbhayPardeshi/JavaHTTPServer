@@ -79,7 +79,8 @@ public class AdvancedServer {
                 BufferedReader in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
 
                 HTTPRequest request = new HTTPRequest();
-                request.parseHTTPRequest(in);
+                //request.parseHTTPRequest(in);
+                request.FSMParser(in);
                 OutputStream outStream = clientSocket.getOutputStream();
                 PrintWriter out = new PrintWriter(outStream, true);
                 router = new Router();

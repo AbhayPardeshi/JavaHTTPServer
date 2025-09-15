@@ -3,8 +3,6 @@ package main.java.handlers;
 import main.java.http.HTTPRequest;
 
 import java.io.PrintWriter;
-import java.lang.reflect.Type;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -28,16 +26,12 @@ public class UserHandler implements RouteHandler{
     @Override
     public void handle(HTTPRequest request, PrintWriter out) {
         // Extract dynamic param from request (assume request has a getParams() method)
-        System.out.println("hi from usersRouter");
         Map<String, String> params = request.getParams();
         String userIdStr = params.get("userId");
 
         try {
             int userId = Integer.parseInt(userIdStr.substring(1));
-            System.out.println(userId);
             String userName = users.get(userId);
-
-
             if (userName != null) {
                 out.println("HTTP/1.1 200 OK");
                 out.println("Content-Type: application/json; charset=UTF-8");

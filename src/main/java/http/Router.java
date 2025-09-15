@@ -19,15 +19,11 @@ public class Router {
 
     private StaticRouter staticRoutes;
     private TrieRouter dynamicRoutes;
-    //Map<String, RouteHandler> dynamicRoutes = new HashMap<>();
-    // private final String PUBLIC_DIR = "src/main/resources/staticFiles";
 
     public Router() {
-//        dynamicRoutes.put("/api/time", new TimeHandler());
         this.staticRoutes = new StaticRouter();
         this.dynamicRoutes = new TrieRouter();
         addDynamicRoutes();
-
     }
 
     private void addDynamicRoutes(){
@@ -60,10 +56,10 @@ public class Router {
 //    public void route(HTTPRequest request, PrintWriter out, OutputStream rawOut){
 //        String pathKey = request.getPath();
 //
-////        if (dynamicRoutes.containsPath(pathKey)) {
-////            //dynamicRoutes.get(pathKey).handle(request, out);
-////            return;
-////        }
+//        if (dynamicRoutes.containsPath(pathKey)) {
+//            //dynamicRoutes.get(pathKey).handle(request, out);
+//            return;
+//        }
 //
 //        String filePath = staticRoutes.getPath(pathKey);
 //
