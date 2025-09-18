@@ -1,5 +1,7 @@
 package main.java.http;
 
+import main.java.cache.BloomFilter;
+import main.java.cache.HybridCache;
 import main.java.handlers.HelloHandler;
 import main.java.handlers.RouteHandler;
 import main.java.handlers.TimeHandler;
@@ -68,7 +70,7 @@ public class Router {
 //
 //    }
 
-    public void route(HTTPRequest request, PrintWriter out, OutputStream rawOut) {
+    public void route(HTTPRequest request, PrintWriter out, OutputStream rawOut, HybridCache cache) {
         String path = request.getPath();
 
         // 1️⃣ Check dynamic routes first
@@ -85,7 +87,7 @@ public class Router {
         // 2️⃣ Otherwise check static routes
         String filePath = staticRoutes.getPath(path);
         if (filePath != null) {
-            staticRoutes.serveStaticFile(filePath, out, rawOut);
+            staticRoutes.serveStaticFile(filePath, out, rawOut,cache);
             return;
         }
 

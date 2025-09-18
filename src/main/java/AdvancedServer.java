@@ -1,6 +1,8 @@
 package main.java;
 
 
+import main.java.cache.BloomFilter;
+import main.java.cache.HybridCache;
 import main.java.config.ServerConfig;
 import main.java.http.HTTPRequest;
 import main.java.http.Router;
@@ -8,6 +10,7 @@ import main.java.http.Router;
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
@@ -22,9 +25,12 @@ public class AdvancedServer {
     private boolean isRunning = false;
     private Socket clientSocket;
     private ExecutorService threadPool;
+    private BloomFilter filter;
+    private HybridCache cache;
 
     private final AtomicInteger activeConnections = new AtomicInteger(0);
     public final AtomicInteger totalConnections = new AtomicInteger(0);
+    private final String PUBLIC_DIR = "src/main/resources/staticFiles";
 
     public AdvancedServer(ServerConfig config){
         this.config = config;
@@ -39,8 +45,18 @@ public class AdvancedServer {
         // create {threadPoolSize} threadPool and make them custom named using serverThreadFactory
         threadPool = Executors.newFixedThreadPool(config.getThreads(), new ServerThreadFactory());
 
-        while(isRunning){
+        // initialize the cache and bloomFilter
+        filter = new BloomFilter(1024 * 1024, 3);// 1MB bit array, 3 hash functions
+        File publicDir = new File(PUBLIC_DIR);
+        for (File f : Objects.requireNonNull(publicDir.listFiles())) {
+            if (f.isFile()) {
+                String relativePath = "/" + f.getName();  // or how your router defines paths
+                filter.add(relativePath);
+            }
+        }
 
+        cache = new HybridCache(2,filter);
+        while(isRunning){
             try{
                 clientSocket = serverSocket.accept();
                 totalConnections.incrementAndGet();
@@ -83,8 +99,9 @@ public class AdvancedServer {
                 request.FSMParser(in);
                 OutputStream outStream = clientSocket.getOutputStream();
                 PrintWriter out = new PrintWriter(outStream, true);
+
                 router = new Router();
-                router.route(request,out,outStream);
+                router.route(request,out,outStream,cache);
 
             } catch (IOException e) {
                 throw new RuntimeException(e);
@@ -116,11 +133,17 @@ public class AdvancedServer {
                 System.out.println("Forcefully shut down tasks.");
             } else {
                 System.out.println("Executor shut down gracefully.");
+                System.out.println();
             }
         } catch (InterruptedException e) {
             threadPool.shutdownNow();
             Thread.currentThread().interrupt();
         }
+
+        System.out.println("Cache Stats:");
+        System.out.println("Hits: " + cache.getHits());
+        System.out.println("Misses: " + cache.getMisses());
+        System.out.println("Evictions: " + cache.getEvictions());
     }
 
     private static void printUsage() {
