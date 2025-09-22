@@ -6,6 +6,7 @@ import main.java.cache.HybridCache;
 import main.java.config.ServerConfig;
 import main.java.http.HTTPRequest;
 import main.java.http.Router;
+import main.java.rateLimiting.RateLimiter;
 
 import java.io.*;
 import java.net.ServerSocket;
@@ -27,6 +28,7 @@ public class AdvancedServer {
     private ExecutorService threadPool;
     private BloomFilter filter;
     private HybridCache cache;
+    private RateLimiter rateLimiter;
 
     private final AtomicInteger activeConnections = new AtomicInteger(0);
     public final AtomicInteger totalConnections = new AtomicInteger(0);
@@ -44,6 +46,13 @@ public class AdvancedServer {
 
         // create {threadPoolSize} threadPool and make them custom named using serverThreadFactory
         threadPool = Executors.newFixedThreadPool(config.getThreads(), new ServerThreadFactory());
+
+        // Initialize rate limiter (server + per-IP + per-path)
+        rateLimiter = new RateLimiter(
+                100, 10,   // server capacity, refill rate
+                10, 2,     // per-IP capacity, refill rate
+                5, 1       // per-path capacity, refill rate
+        );
 
         // initialize the cache and bloomFilter
         filter = new BloomFilter(1024 * 1024, 3);// 1MB bit array, 3 hash functions
@@ -99,10 +108,21 @@ public class AdvancedServer {
                 request.FSMParser(in);
                 OutputStream outStream = clientSocket.getOutputStream();
                 PrintWriter out = new PrintWriter(outStream, true);
+                String clientIP = clientSocket.getInetAddress().getHostAddress();
+
+                if(!rateLimiter.checkRequest(request.getPath(), clientIP)) {
+                    // Send 429 + rate-limit headers
+                    out.println("HTTP/1.1 429 Too Many Requests");
+                    RateLimiter.writeRateLimitHeaders(out, rateLimiter, clientIP, request.getPath());
+                    out.println("Content-Type: text/plain");
+                    out.println();
+                    out.println("429 Too Many Requests");
+                    out.flush();
+                    return; // stop further processing
+                }
 
                 router = new Router();
                 router.route(request,out,outStream,cache);
-
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }finally {
