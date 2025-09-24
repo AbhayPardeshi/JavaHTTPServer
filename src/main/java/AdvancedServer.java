@@ -4,6 +4,7 @@ package main.java;
 import main.java.cache.BloomFilter;
 import main.java.cache.HybridCache;
 import main.java.config.ServerConfig;
+import main.java.connectionManagement.Connection;
 import main.java.http.HTTPRequest;
 import main.java.http.Router;
 import main.java.rateLimiting.RateLimiter;
@@ -12,6 +13,7 @@ import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.Objects;
+import java.util.PriorityQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
@@ -49,9 +51,7 @@ public class AdvancedServer {
 
         // Initialize rate limiter (server + per-IP + per-path)
         rateLimiter = new RateLimiter(
-                100, 10,   // server capacity, refill rate
-                10, 2,     // per-IP capacity, refill rate
-                5, 1       // per-path capacity, refill rate
+                100, 10,10, 2, 5, 1
         );
 
         // initialize the cache and bloomFilter
@@ -65,16 +65,46 @@ public class AdvancedServer {
         }
 
         cache = new HybridCache(2,filter);
-        while(isRunning){
-            try{
-                clientSocket = serverSocket.accept();
-                totalConnections.incrementAndGet();
-                System.out.println("client connected");
-                threadPool.submit(new ManagedClientHandler(clientSocket));
-            } catch (IOException e) {
-                throw new RuntimeException(e);
+
+
+        // Priority queue of connections
+        PriorityQueue<Connection> connectionQueue = new PriorityQueue<>();
+
+       // Dispatcher thread: pulls from PQ and submits to pool
+        Thread dispatcher = new Thread(() -> {
+            while (isRunning) {
+                try {
+                    Connection conn = null;
+                    synchronized (connectionQueue) {
+                        while (connectionQueue.isEmpty() && isRunning) {
+                            connectionQueue.wait(); // wait for new connection
+                        }
+                        if (!connectionQueue.isEmpty()) {
+                            conn = connectionQueue.poll();
+                        }
+                    }
+                    if (conn != null) {
+                        threadPool.submit(new ManagedClientHandler(conn.clientSocket));
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        });
+        dispatcher.start();
+
+        while (isRunning) {
+            Socket clientSocket = serverSocket.accept();
+            String clientIP = clientSocket.getInetAddress().getHostAddress();
+
+            Connection conn = new Connection(clientSocket, clientIP);
+
+            synchronized (connectionQueue) {
+                connectionQueue.add(conn);
+                connectionQueue.notify();
             }
         }
+
     }
 
     private static class ServerThreadFactory implements ThreadFactory {
@@ -97,35 +127,43 @@ public class AdvancedServer {
         }
 
         @Override
-        public void run(){
+        public void run() {
             activeConnections.incrementAndGet();
             String clientAddress = clientSocket.getRemoteSocketAddress().toString();
             try {
                 BufferedReader in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
-
-                HTTPRequest request = new HTTPRequest();
-                //request.parseHTTPRequest(in);
-                request.FSMParser(in);
                 OutputStream outStream = clientSocket.getOutputStream();
                 PrintWriter out = new PrintWriter(outStream, true);
-                String clientIP = clientSocket.getInetAddress().getHostAddress();
 
-                if(!rateLimiter.checkRequest(request.getPath(), clientIP)) {
-                    // Send 429 + rate-limit headers
+                // Parse request
+                HTTPRequest request = new HTTPRequest();
+                request.parseHTTPRequest(in);
+
+                // Assign connection priority (based on path)
+                String path = request.getPath();
+                String clientIP = clientSocket.getInetAddress().getHostAddress();
+                // you may want to hold a reference to the Connection object here
+                Connection conn = new Connection(clientSocket, clientIP);
+                conn.setPriority(path);
+
+                // Apply rate limiting
+                if (!rateLimiter.checkRequest(path, clientIP)) {
                     out.println("HTTP/1.1 429 Too Many Requests");
-                    RateLimiter.writeRateLimitHeaders(out, rateLimiter, clientIP, request.getPath());
+                    RateLimiter.writeRateLimitHeaders(out, rateLimiter, clientIP, path);
                     out.println("Content-Type: text/plain");
                     out.println();
                     out.println("429 Too Many Requests");
                     out.flush();
-                    return; // stop further processing
+                    return;
                 }
 
+                // Route request
                 router = new Router();
-                router.route(request,out,outStream,cache);
+                router.route(request, out, outStream, cache);
+
             } catch (IOException e) {
                 throw new RuntimeException(e);
-            }finally {
+            } finally {
                 try {
                     clientSocket.close();
                 } catch (IOException e) {
@@ -135,8 +173,8 @@ public class AdvancedServer {
                 System.out.println("Disconnected " + clientAddress +
                         " (Active: " + activeConnections.get() + ")");
             }
-
         }
+
     }
 
     public void stop() throws IOException {

@@ -28,9 +28,10 @@ public class UserHandler implements RouteHandler{
         // Extract dynamic param from request (assume request has a getParams() method)
         Map<String, String> params = request.getParams();
         String userIdStr = params.get("userId");
-
+        System.out.println("in users route");
+        System.out.println(userIdStr);
         try {
-            int userId = Integer.parseInt(userIdStr.substring(1));
+            int userId = Integer.parseInt(userIdStr);
             String userName = users.get(userId);
             if (userName != null) {
                 out.println("HTTP/1.1 200 OK");

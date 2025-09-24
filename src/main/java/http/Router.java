@@ -47,7 +47,7 @@ public class Router {
             RouteHandler handler = switch (key) {
                 case "users" -> new UserHandler();      // dynamic route handler
                 //case "comments" -> new CommentsHandler();
-                //case "about" -> new AboutHandler();
+                case "time" -> new TimeHandler();
                 default -> throw new RuntimeException("Unknown handler key: " + key);
             };
 
